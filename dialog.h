@@ -35,7 +35,8 @@ enum {
     CTRL_COLUMNS,		       /* divide window into columns */
     CTRL_FILESELECT,		       /* label plus filename selector */
     CTRL_FONTSELECT,		       /* label plus font selector */
-    CTRL_TABDELAY		       /* see `tabdelay' below */
+    CTRL_TABDELAY,		       /* see `tabdelay' below */
+    CTRL_TREEVIEW,		       /* tree view component */
 };
 
 /*
@@ -516,6 +517,9 @@ union control *ctrl_pushbutton(struct controlset *, const char *label,
 union control *ctrl_listbox(struct controlset *, const char *label,
                             char shortcut, intorptr helpctx,
 			    handler_fn handler, intorptr context);
+union control *ctrl_treeview(struct controlset *, const char *label,
+                            char shortcut, intorptr helpctx,
+			    handler_fn handler, intorptr context);
 union control *ctrl_droplist(struct controlset *, const char *label,
                              char shortcut, int percentage, intorptr helpctx,
 			     handler_fn handler, intorptr context);
@@ -550,6 +554,10 @@ char *dlg_editbox_get(union control *ctrl, void *dlg);   /* result must be freed
 void dlg_listbox_clear(union control *ctrl, void *dlg);
 void dlg_listbox_del(union control *ctrl, void *dlg, int index);
 void dlg_listbox_add(union control *ctrl, void *dlg, char const *text);
+void dlg_treeview_clear(union control *ctrl, void *dlg);
+void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text, int id, void *parent);
+void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id);
+void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle);
 /*
  * Each listbox entry may have a numeric id associated with it.
  * Note that some front ends only permit a string to be stored at

@@ -58,4 +58,21 @@ BEGIN
     EDITTEXT IDA_TEXT, 10, 10, 306, 192, ES_READONLY | ES_MULTILINE | ES_LEFT, WS_EX_STATICEDGE
 END
 
+IDD_SYNC_SETTINGS DIALOGEX 50, 50, 287, 119
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Sync settings"
+FONT 8, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,177,100,50,14,WS_GROUP
+    EDITTEXT        IDC_SYNC_URL,48,36,234,12,ES_AUTOHSCROLL
+    LTEXT           "URL:",IDC_STATIC,6,39,16,8
+    EDITTEXT        IDC_SYNC_USERNAME,48,60,234,12,ES_AUTOHSCROLL
+    LTEXT           "Username:",IDC_STATIC,6,63,36,8
+    EDITTEXT        IDC_SYNC_PASSWORD,48,78,234,12,ES_PASSWORD | ES_AUTOHSCROLL
+    LTEXT           "Password:",IDC_STATIC,6,80,34,8
+    PUSHBUTTON      "Cancel",IDCANCEL,234,100,50,14,WS_GROUP
+    CONTROL         "Choose a valid PuTTY session sync endpoint which supports <a href=""https://www.check24.de"">PuTTY sync JSON format</a>. The request is made using HTTP Basic Auth with the given username and password.",IDC_SYNC_INFO,
+                    "SysLink",WS_TABSTOP,7,6,261,24
+END
+
 #include "version.rc2"

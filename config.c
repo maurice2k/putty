@@ -1476,7 +1476,7 @@ void setup_config_box(struct controlbox *b, int midsession,
 				HELPCTX(session_saved),
 				sessionsaver_handler, P(ssd));
     ssd->listbox->generic.column = 0;
-    ssd->listbox->listbox.height = 20;
+    ssd->listbox->listbox.height = 18;
     if (!midsession) {
 	ssd->loadbutton = ctrl_pushbutton(s, "Load", 'l',
 					  HELPCTX(session_saved),
@@ -1503,11 +1503,6 @@ void setup_config_box(struct controlbox *b, int midsession,
 	/* Disable the Delete button mid-session too, for UI consistency. */
 	ssd->delbutton = NULL;
     }
-    /* "Save" button is permitted mid-session. */
-    ssd->reloadshared = ctrl_pushbutton(s, "Reload", 'z',
-				      HELPCTX(session_saved),
-				      sessionsaver_handler, P(ssd));
-    ssd->reloadshared->generic.column = 1;
     ctrl_columns(s, 1, 100);
 
     s = ctrl_getset(b, "Session", "otheropts", NULL);

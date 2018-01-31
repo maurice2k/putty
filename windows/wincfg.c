@@ -9,6 +9,7 @@
 #include "putty.h"
 #include "dialog.h"
 #include "storage.h"
+#include "sync.h"
 
 static void about_handler(union control *ctrl, void *dlg,
 			  void *data, int event)
@@ -46,6 +47,8 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, int has_help,
     struct controlset *s;
     union control *c;
     char *str;
+
+    win_setup_config_box_sync_buttons(b, hwndp, has_help, midsession);
 
     if (!midsession) {
 	/*

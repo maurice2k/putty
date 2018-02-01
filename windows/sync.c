@@ -17,6 +17,7 @@
 #include <commctrl.h>
 
 #include "sync.h"
+#include "parson.h"
 
 static char *format_windows_error(DWORD last_error);
 
@@ -37,7 +38,7 @@ static sync_settings *load_sync_settings()
     memset(settings, 0, sizeof(*settings));
 
     if (RegOpenKey(HKEY_CURRENT_USER, PUTTY_REG_POS, &rkey) == ERROR_SUCCESS) {
-        
+
         if ((str = read_setting_s(rkey, "SyncUrl")) != NULL) {
             strncpy(settings->url, str, sizeof(settings->url) - 1);
             sfree(str);
@@ -64,7 +65,7 @@ static void save_sync_settings(sync_settings *settings)
     HKEY rkey;
 
     if (RegOpenKey(HKEY_CURRENT_USER, PUTTY_REG_POS, &rkey) == ERROR_SUCCESS) {
-        
+
         write_setting_s(rkey, "SyncUrl", (const char *)&settings->url);
         write_setting_s(rkey, "SyncUsername", (const char *)&settings->username);
         write_setting_s(rkey, "SyncPassword", (const char *)&settings->password);
@@ -78,7 +79,8 @@ static void free_sync_settings(sync_settings *settings)
     sfree(settings);
 }
 
-static char *clone_default_session(const char *target_name)
+static char *clone_default_session_settings(const char *target_name,
+    HKEY *target_sess_hkey_ref)
 {
     char *err_msg = NULL, *name = NULL, *ret = NULL;
     LPBYTE value = NULL;
@@ -86,26 +88,24 @@ static char *clone_default_session(const char *target_name)
     DWORD nameSize = 32767;
     DWORD valueSize;
     DWORD type = 0;
-    DWORD synced_session
-     = 1;
     LONG res;
-    HKEY default_sess_key = NULL;
-    HKEY target_sess_key = NULL;
+    HKEY default_sess_hkey = NULL;
+    HKEY target_sess_hkey = NULL;
 
-    default_sess_key = open_settings_r(NULL);
-    if (default_sess_key == NULL) {
+    default_sess_hkey = open_settings_r(NULL);
+    if (default_sess_hkey == NULL) {
         RETURN_ERROR(dupprintf("Unable to load default settings to clone "\
             "from for %s", target_name));
     }
 
     del_settings(target_name); // remove the target session if already existant
 
-    target_sess_key = open_settings_w(target_name, &err_msg);
-    if (target_sess_key == NULL) {
+    target_sess_hkey = open_settings_w(target_name, &err_msg);
+    if (target_sess_hkey == NULL) {
         RETURN_ERROR(dupprintf("Unable to create settings for %s: %s",
             target_name, err_msg));
     }
-        
+
     name = snewn(32768, char);
     value = snewn(65536, BYTE);
 
@@ -113,7 +113,7 @@ static char *clone_default_session(const char *target_name)
         nameSize = 32767;  // max size for names
         valueSize = 65535;
 
-        res = RegEnumValue(default_sess_key, i, name, &nameSize, NULL, &type,
+        res = RegEnumValue(default_sess_hkey, i, name, &nameSize, NULL, &type,
             value, &valueSize);
         if (res == ERROR_MORE_DATA) {
             // value is larger than 64kB, we're skipping this as PuTTY's config
@@ -124,30 +124,28 @@ static char *clone_default_session(const char *target_name)
             break;
         }
 
-        res = RegSetValueEx(target_sess_key, name, 0, type, value, valueSize);
+        res = RegSetValueEx(target_sess_hkey, name, 0, type, value, valueSize);
         if (res != ERROR_SUCCESS) {
             RETURN_WINDOWS_ERROR();
         }
     }
 
-    RegSetValueEx(target_sess_key, "SyncedSession", 0, REG_DWORD,
-        &synced_session, sizeof(synced_session));
+    if (target_sess_hkey_ref != NULL) {
+        *target_sess_hkey_ref = target_sess_hkey;
+    }
 
 done:
     if (err_msg != NULL) {
         sfree(err_msg);
     }
-
     if (err_msg != NULL) {
         sfree(err_msg);
     }
-
-    if (default_sess_key) {
-        close_settings_r(default_sess_key);
+    if (default_sess_hkey) {
+        close_settings_r(default_sess_hkey);
     }
-
-    if (target_sess_key) {
-        close_settings_w(target_sess_key);
+    if (target_sess_hkey && target_sess_hkey_ref == NULL) {
+        close_settings_w(target_sess_hkey);
     }
 
     return ret;
@@ -155,8 +153,96 @@ done:
 
 static char *parse_json_response(const char *json_buf)
 {
-    return clone_default_session("nasty nice");
-    return NULL;
+    char *ret = NULL;
+    JSON_Value *root, *val;
+    JSON_Object *root_obj, *sessions_obj, *session_obj;
+    size_t items, i, j;
+    const char *session_name, *setting_name;
+    HKEY target_sess_hkey;
+
+    // parse json
+    root = (JSON_Value *)json_parse_string(json_buf);
+    if (json_value_get_type(root) == JSONError) {
+        RETURN_ERROR(dupprintf("Error parsing session sync JSON."));
+    }
+
+    // check for root element being an object
+    if (json_value_get_type(root) != JSONObject) {
+        RETURN_ERROR(dupprintf("Sync JSON root element must be an object."));
+    }
+
+    root_obj = json_value_get_object(root);
+
+    // version checks
+    val = json_object_get_value(root_obj, "version");
+    if (val == NULL || json_value_get_type(val) != JSONNumber) {
+        RETURN_ERROR(dupprintf("No 'version' of type integer found in "\
+            "sync JSON."));
+    }
+    if (json_value_get_number(val) != 1) {
+        RETURN_ERROR(dupprintf("Only sync JSON version 1 is supported "\
+            "(given: %d).", (int)json_value_get_number(val)));
+    }
+
+    // sessions checks
+    val = json_object_get_value(root_obj, "sessions");
+    if (val == NULL || json_value_get_type(val) != JSONObject) {
+        RETURN_ERROR(dupprintf("No 'sessions' of type object found in "\
+            "sync JSON."));
+    }
+
+    sessions_obj = json_value_get_object(val);
+    items = json_object_get_count(sessions_obj);
+
+    printf("Number of sessions: %i\n", (int)items);
+
+    for (i = 0; i < items; ++i) {
+
+        session_name = json_object_get_name(sessions_obj, i);
+
+        val = json_object_get_value_at(sessions_obj, i);
+        if (val == NULL || json_value_get_type(val) != JSONObject) {
+            RETURN_ERROR(dupprintf("Session for '%s' must be an object in "\
+                "sync JSON.", session_name));
+        }
+
+        session_obj = json_value_get_object(val);
+
+        val = json_object_get_value(session_obj, "HostName");
+        if (val == NULL || json_value_get_type(val) != JSONString) {
+            RETURN_ERROR(dupprintf("Session '%s' is missing 'HostName' entry "\
+                "in sync JSON.", session_name));
+        }
+
+        ret = clone_default_session_settings(session_name, &target_sess_hkey);
+        if (ret != NULL) {
+            goto done;
+        }
+
+        for (j = 0; j < json_object_get_count(session_obj); ++j) {
+
+            setting_name = json_object_get_name(session_obj, j);
+            val = json_object_get_value_at(session_obj, j);
+            if (json_value_get_type(val) == JSONString) {
+                write_setting_s(target_sess_hkey, setting_name,
+                    json_value_get_string(val));
+            } else if (json_value_get_type(val) == JSONNumber) {
+                write_setting_i(target_sess_hkey, setting_name,
+                    (long)json_value_get_number(val));
+            } else {
+                // skipp everything that is not a string or a number
+            }
+
+        }
+
+        close_settings_w(target_sess_hkey);
+
+    }
+
+done:
+    json_value_free(root);
+
+    return ret;
 }
 
 char *sync_sessions()
@@ -209,8 +295,6 @@ char *sync_sessions()
         flags |= INTERNET_FLAG_SECURE;
     }
 
-    printf("Host: %s, Port: %d; Path: %s\n", host, uc->nPort, path);
-
     // open wininet handle
     hSession = InternetOpen("PuTTY Sync", INTERNET_OPEN_TYPE_PRECONFIG,
                             NULL, NULL, 0);
@@ -249,12 +333,11 @@ char *sync_sessions()
             RETURN_ERROR(dupprintf("Sync endpoint credentials seem to be "\
                 "incorrect (HTTP status code 403)."))
         }
-        
+
         if (statusCode < 200 || statusCode >= 300) {
             RETURN_ERROR(dupprintf("Sync endpoint returned with HTTP status "\
                 "code %ld.", statusCode))
         }
-
     }
 
     // retrieve response
@@ -283,8 +366,6 @@ char *sync_sessions()
         goto done;
     }
 
-    printf("BUFFER: %s\n", buf);
-    
 done:
     if (s) {
         free_sync_settings(s);
@@ -304,7 +385,7 @@ done:
     if (hSession) {
         InternetCloseHandle(hSession);
     }
-    
+
     return ret;
 }
 
@@ -324,14 +405,14 @@ static char *format_windows_error(DWORD last_error)
         0,
         NULL
     );
-    
+
     if (dwBaseLength > 0) {
         res = dupprintf("Error #%ld: %s", last_error, lpMsgBuf);
         LocalFree(lpMsgBuf);
         return res;
     } else {
         return dupprintf("Error #%ld: %s", last_error,
-        "(no error message as FormatMessage failed)");
+            "(no error message as FormatMessage failed)");
     }
 }
 
@@ -426,13 +507,13 @@ static void modal_sync_settings(HWND hwnd)
 {
     EnableWindow(hwnd, 0);
     DialogBox(hinst, MAKEINTRESOURCE(IDD_SYNC_SETTINGS), hwnd,
-              SyncSettingsProc);
+        SyncSettingsProc);
     EnableWindow(hwnd, 1);
     SetActiveWindow(hwnd);
 }
 
 void sync_down_handler(union control *ctrl, void *dlg,
-			  void *data, int event)
+                          void *data, int event)
 {
     HANDLE th;
     DWORD threadid;
@@ -448,13 +529,13 @@ void sync_down_handler(union control *ctrl, void *dlg,
 }
 
 void sync_settings_handler(union control *ctrl, void *dlg,
-			  void *data, int event)
+                           void *data, int event)
 {
     HWND *hwndp = (HWND *)ctrl->generic.context.p;
 
     if (event == EVENT_ACTION) {
         settings = load_sync_settings();
-	modal_sync_settings(*hwndp);
+        modal_sync_settings(*hwndp);
     }
 }
 

@@ -10,6 +10,7 @@ typedef struct session_node {
     char *name;
     int index;
     void *data;
+    struct session_node *parent;
     struct session_node *first_child;
     struct session_node *next_sibling;
 } session_node;

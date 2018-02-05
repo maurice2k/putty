@@ -660,9 +660,37 @@ typedef struct { void *ctrl, *dlg; } cb_cd;
 static void *tree_insert_callback(session_node *current, session_node *parent,
     int is_leaf, int level, void *extra_data)
 {
+    char *complete_name = NULL;
+    if (is_leaf) {
+        int len = 0, cap = 256;
+        session_node *sess_node = current;
+
+        complete_name = snewn(cap, char);
+        while (sess_node->parent != NULL) {
+            int name_len = strlen(sess_node->name);
+            if (len + name_len + 2 > cap - 1) {
+                cap = (len + name_len + 2) + 256;
+                complete_name = sresize(complete_name, cap, char);
+            }
+            if (len > 0) {
+                memmove(complete_name + name_len + 2, complete_name, len);
+                strncpy(complete_name + name_len, ": ", 2);
+                len += 2;
+            }
+            strncpy(complete_name, sess_node->name, name_len);
+            len += name_len;
+            complete_name[len] = 0;
+            sess_node = sess_node->parent;
+        }
+    }
     current->data = dlg_treeview_add(((cb_cd*)extra_data)->ctrl,
         ((cb_cd*)extra_data)->dlg, current->name, is_leaf ? current->index : -1,
-        parent->data);
+        parent->data, complete_name);
+
+    if (complete_name) {
+        sfree(complete_name);
+    }
+
     return NULL;
 }
 

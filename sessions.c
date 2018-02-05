@@ -89,6 +89,7 @@ session_node *session_node_insert_child_before(session_node *parent, session_nod
     }
 
     sess_node = session_node_create(name, index);
+    sess_node->parent = parent;
 
    /* if (parent->first_child == NULL) {
         parent->first_child = sess_node;
@@ -124,6 +125,7 @@ session_node *session_node_insert_sorted_unique_name(session_node *parent, char 
 
     if (parent->first_child == NULL) {
         parent->first_child = session_node_create(name, index);
+        parent->first_child->parent = parent;
         return parent->first_child;
     }
 
@@ -141,8 +143,10 @@ session_node *session_node_insert_sorted_unique_name(session_node *parent, char 
             if (child == prev_child) {
                 // insert before first child
                 parent->first_child = sess_node;
+                sess_node->parent = parent;
             } else {
                 prev_child->next_sibling = sess_node;
+                sess_node->parent = parent;
             }
 
             return sess_node;
@@ -153,6 +157,7 @@ session_node *session_node_insert_sorted_unique_name(session_node *parent, char 
     }
 
     prev_child->next_sibling = session_node_create(name, index);
+    prev_child->next_sibling->parent = parent;
     return prev_child->next_sibling;
 }
 
@@ -177,10 +182,11 @@ session_node *session_node_create(char *name, int index)
     sess_node->data = NULL;
     sess_node->first_child = NULL;
     sess_node->next_sibling = NULL;
+    sess_node->parent = NULL;
     return sess_node;
 }
 
-// free the given node
+// free the given node and all child nodes/siblings
 void session_node_free(session_node *sess_node)
 {
     if (sess_node == NULL) {

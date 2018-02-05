@@ -14,6 +14,17 @@
 
 #define MAY_REFER_TO_GTK_IN_HEADERS
 
+#define GTK_MAJOR_VERSION				(2)
+#define GTK_MINOR_VERSION				(3)
+#define GTK_MICRO_VERSION				(31)
+
+#define	GTK_CHECK_VERSION(major,minor,micro)	\
+    (GTK_MAJOR_VERSION > (major) || \
+     (GTK_MAJOR_VERSION == (major) && GTK_MINOR_VERSION > (minor)) || \
+     (GTK_MAJOR_VERSION == (major) && GTK_MINOR_VERSION == (minor) && \
+      GTK_MICRO_VERSION >= (micro)))
+
+
 #include "putty.h"
 #include "gtkcompat.h"
 #include "gtkcols.h"
@@ -840,6 +851,59 @@ void dlg_listbox_select(union control *ctrl, void *dlg, int index)
     }
 #endif
     assert(!"We shouldn't get here");
+}
+
+void dlg_treeview_clear(union control *ctrl, void *dlg)
+{
+    dlg_listbox_clear(ctrl, dlg);
+}
+
+void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text,
+    int id, void *parent, char const *complete_name) 
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
+
+    assert(uc->ctrl->generic.type == CTRL_EDITBOX ||
+	   uc->ctrl->generic.type == CTRL_LISTBOX);
+
+    if (id >= 0 && complete_name != NULL) {
+        dlg_listbox_addwithid(ctrl, dlg, complete_name, id);
+        printf("name: %s, id: %i\n", complete_name, id);
+
+
+#if !GTK_CHECK_VERSION(2,0,0)
+        if (uc->list) {
+            guint nitems;
+            GList *items;
+            items = gtk_container_children(GTK_CONTAINER(uc->list));
+            nitems = g_list_length(items);
+            return GINT_TO_POINTER(nitems - 1 + 0x1000);
+        }
+#else
+        if (uc->listmodel) {
+            gint nitems = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(uc->listmodel), NULL);
+            return GINT_TO_POINTER(nitems - 1 + 0x1000);
+        }
+#endif
+
+    }
+    return NULL;
+}
+
+void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id)
+{
+    int index = dlg_listbox_index(ctrl, dlg);
+    if (index < 0) {
+        return NULL;
+    }
+    *id = dlg_listbox_getid(ctrl, dlg, index);
+    return (void *)((long)index + 0x1000);
+}
+
+void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle)
+{
+    dlg_listbox_select(ctrl, dlg, (long)item_handle - 0x1000);
 }
 
 void dlg_text_set(union control *ctrl, void *dlg, char const *text)
@@ -1941,6 +2005,9 @@ GtkWidget *layout_ctrls(struct dlgparam *dp, struct Shortcuts *scs,
 	int left = FALSE;
         GtkWidget *w = NULL;
 
+if (ctrl->generic.type == CTRL_TREEVIEW) {
+        ctrl->generic.type = CTRL_LISTBOX;
+}
         switch (ctrl->generic.type) {
           case CTRL_COLUMNS:
             {
@@ -2221,6 +2288,7 @@ GtkWidget *layout_ctrls(struct dlgparam *dp, struct Shortcuts *scs,
             }
             break;
           case CTRL_LISTBOX:
+          case CTRL_TREEVIEW:
 
 #if GTK_CHECK_VERSION(2,0,0)
 	    /*

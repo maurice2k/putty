@@ -864,15 +864,12 @@ void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text,
     struct dlgparam *dp = (struct dlgparam *)dlg;
     struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
 
-    assert(uc->ctrl->generic.type == CTRL_EDITBOX ||
-	   uc->ctrl->generic.type == CTRL_LISTBOX);
-
-    if (id >= 0 && complete_name != NULL) {
-        dlg_listbox_addwithid(ctrl, dlg, complete_name, id);
-        printf("name: %s, id: %i\n", complete_name, id);
-
+    assert(uc->ctrl->generic.type == CTRL_LISTBOX);
 
 #if !GTK_CHECK_VERSION(2,0,0)
+    if (id >= 0 && complete_name != NULL) {
+        dlg_listbox_addwithid(ctrl, dlg, complete_name, id);
+
         if (uc->list) {
             guint nitems;
             GList *items;
@@ -880,30 +877,120 @@ void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text,
             nitems = g_list_length(items);
             return GINT_TO_POINTER(nitems - 1 + 0x1000);
         }
+    }
 #else
-        if (uc->listmodel) {
-            gint nitems = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(uc->listmodel), NULL);
-            return GINT_TO_POINTER(nitems - 1 + 0x1000);
+    if (uc->listmodel) {
+        GtkTreeIter *iter;
+        GtkTreePath *path;
+        int i, cols;
+        gint *indices;
+
+        iter = snew(GtkTreeIter);
+
+        dp->flags |= FLAG_UPDATING_LISTBOX;/* inhibit drag-list update */
+        gtk_tree_store_append(uc->listmodel, iter, parent);
+        dp->flags &= ~FLAG_UPDATING_LISTBOX;
+        gtk_tree_store_set(uc->listmodel, iter, 0, id, -1);
+        gtk_tree_store_set(uc->listmodel, iter, 1, text, -1);
+
+
+        if (parent != NULL) {
+            sfree(parent);
         }
-#endif
+
+        if (complete_name != NULL) {
+            sfree(iter);
+            iter = NULL;
+        }
+
+        return iter;
 
     }
+
+#endif
+
     return NULL;
 }
 
 void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id)
 {
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
+
+    assert(uc->ctrl->generic.type == CTRL_LISTBOX);
+
+#if !GTK_CHECK_VERSION(2,0,0)
     int index = dlg_listbox_index(ctrl, dlg);
     if (index < 0) {
         return NULL;
     }
     *id = dlg_listbox_getid(ctrl, dlg, index);
     return (void *)((long)index + 0x1000);
+#else
+    if (uc->treeview) {
+        GtkTreeSelection *treesel;
+        GtkTreePath *path;
+        GtkTreeModel *model;
+        GList *sellist;
+        gint *indices;
+        int ret;
+
+        assert(uc->treeview != NULL);
+        treesel = gtk_tree_view_get_selection(GTK_TREE_VIEW(uc->treeview));
+
+        if (gtk_tree_selection_count_selected_rows(treesel) != 1) {
+            return NULL;
+        }
+
+        sellist = gtk_tree_selection_get_selected_rows(treesel, &model);
+
+        assert(sellist && sellist->data);
+        path = sellist->data;
+
+        if (gtk_tree_path_get_depth(path) != 1) {
+            ret = -1;
+        } else {
+            indices = gtk_tree_path_get_indices(path);
+            if (!indices) {
+                ret = -1;
+            } else {
+                ret = indices[0];
+            }
+        }
+
+        g_list_foreach(sellist, (GFunc)gtk_tree_path_free, NULL);
+        g_list_free(sellist);
+
+        return ret;
+    }
+
+#endif
+    return NULL;
 }
 
 void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle)
 {
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
+
+    assert(uc->ctrl->generic.type == CTRL_LISTBOX);
+
+#if !GTK_CHECK_VERSION(2,0,0)
     dlg_listbox_select(ctrl, dlg, (long)item_handle - 0x1000);
+#else
+    if (uc->treeview) {
+        GtkTreeSelection *treesel;
+        GtkTreePath *path = item_handle;
+
+        treesel = gtk_tree_view_get_selection(GTK_TREE_VIEW(uc->treeview));
+
+        gtk_tree_selection_select_path(treesel, path);
+        gtk_tree_view_scroll_to_cell(GTK_TREE_VIEW(uc->treeview),
+                                     path, NULL, FALSE, 0.0, 0.0);
+        //gtk_tree_path_free(path);
+        return;
+    }
+#endif
 }
 
 void dlg_text_set(union control *ctrl, void *dlg, char const *text)

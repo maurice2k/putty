@@ -13,17 +13,6 @@
 #endif
 
 #define MAY_REFER_TO_GTK_IN_HEADERS
-/*
-#define GTK_MAJOR_VERSION				(2)
-#define GTK_MINOR_VERSION				(2)
-#define GTK_MICRO_VERSION				(31)
-
-#define	GTK_CHECK_VERSION(major,minor,micro)	\
-    (GTK_MAJOR_VERSION > (major) || \
-     (GTK_MAJOR_VERSION == (major) && GTK_MINOR_VERSION > (minor)) || \
-     (GTK_MAJOR_VERSION == (major) && GTK_MINOR_VERSION == (minor) && \
-      GTK_MICRO_VERSION >= (micro)))
-/**/
 
 #include "putty.h"
 #include "gtkcompat.h"
@@ -77,7 +66,6 @@ struct uctrl {
 #if GTK_CHECK_VERSION(2,0,0)
     GtkWidget *treeview;      /* for listbox (GTK2), droplist+combo (>=2.4) */
     GtkTreeStore *listmodel;  /* for all types of list box */
-    GtkTreeStore *treemodel;  /* for treeview (GTK2) */
 #endif
     GtkWidget *text;	      /* for text */
     GtkWidget *label;         /* for dlg_label_change */
@@ -856,30 +844,33 @@ void dlg_listbox_select(union control *ctrl, void *dlg, int index)
 
 void dlg_treeview_clear(union control *ctrl, void *dlg)
 {
+    assert(ctrl->generic.type == CTRL_TREEVIEW);
+    ctrl->generic.type = CTRL_LISTBOX;
     dlg_listbox_clear(ctrl, dlg);
+    ctrl->generic.type = CTRL_TREEVIEW;
 }
 
 void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text,
-    int id, void *parent, int is_leaf, int is_last_sibling,
-    char const *complete_name)
+    int id, void *parent, char const *complete_name)
 {
     struct dlgparam *dp = (struct dlgparam *)dlg;
     struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
 
-    assert(uc->ctrl->generic.type == CTRL_LISTBOX);
+    assert(uc->ctrl->generic.type == CTRL_TREEVIEW);
 
 #if !GTK_CHECK_VERSION(2,0,0)
     if (id >= 0 && complete_name != NULL) {
+        ctrl->generic.type = CTRL_LISTBOX;
         dlg_listbox_addwithid(ctrl, dlg, complete_name, id);
+        ctrl->generic.type = CTRL_TREEVIEW;
 
-        if (uc->list) {
-            guint nitems;
-            GList *items;
-            items = gtk_container_children(GTK_CONTAINER(uc->list));
-            nitems = g_list_length(items);
-            printf("GINT_TO_POINTER(nitems - 1 + 0x1000): %p\n", GINT_TO_POINTER(nitems - 1 + 0x1000));
-            return GINT_TO_POINTER(nitems - 1 + 0x1000);
-        }
+        assert(uc->list != NULL);
+
+        guint nitems;
+        GList *items;
+        items = gtk_container_children(GTK_CONTAINER(uc->list));
+        nitems = g_list_length(items);
+        return GINT_TO_POINTER(nitems - 1 + 0x1000);
     }
 #else
     if (uc->listmodel) {
@@ -927,14 +918,23 @@ void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id)
     struct dlgparam *dp = (struct dlgparam *)dlg;
     struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
 
-    assert(uc->ctrl->generic.type == CTRL_LISTBOX);
+    assert(uc->ctrl->generic.type == CTRL_TREEVIEW);
 
 #if !GTK_CHECK_VERSION(2,0,0)
-    int index = dlg_listbox_index(ctrl, dlg);
+    int index;
+    
+    ctrl->generic.type = CTRL_LISTBOX;
+    index = dlg_listbox_index(ctrl, dlg);
+    ctrl->generic.type = CTRL_TREEVIEW;
+
     if (index < 0) {
         return NULL;
     }
+
+    ctrl->generic.type = CTRL_LISTBOX;
     *id = dlg_listbox_getid(ctrl, dlg, index);
+    ctrl->generic.type = CTRL_TREEVIEW;
+
     return (void *)((long)index + 0x1000);
 #else
     if (uc->treeview) {
@@ -958,12 +958,12 @@ void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle)
     struct dlgparam *dp = (struct dlgparam *)dlg;
     struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
 
-    assert(uc->ctrl->generic.type == CTRL_LISTBOX);
+    assert(uc->ctrl->generic.type == CTRL_TREEVIEW);
 
 #if !GTK_CHECK_VERSION(2,0,0)
-printf("----------- item_handle: %p\n", item_handle);
+    ctrl->generic.type = CTRL_LISTBOX;
     dlg_listbox_select(ctrl, dlg, (long)item_handle - 0x1000);
-printf("===========\n");
+    ctrl->generic.type = CTRL_TREEVIEW;
 #else
     if (uc->treeview) {
         GtkTreeSelection *treesel;
@@ -2084,9 +2084,6 @@ GtkWidget *layout_ctrls(struct dlgparam *dp, struct Shortcuts *scs,
 	int left = FALSE;
         GtkWidget *w = NULL;
 
-if (ctrl->generic.type == CTRL_TREEVIEW) {
-        ctrl->generic.type = CTRL_LISTBOX;
-}
         switch (ctrl->generic.type) {
           case CTRL_COLUMNS:
             {

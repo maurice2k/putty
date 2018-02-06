@@ -571,8 +571,7 @@ void dlg_listbox_select(union control *ctrl, void *dlg, int index);
 
 void dlg_treeview_clear(union control *ctrl, void *dlg);
 void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text,
-    int id, void *parent, int is_leaf, int is_last_sibling,
-    char const *complete_name);
+    int id, void *parent, char const *complete_name);
 void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id);
 void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle);
 

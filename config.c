@@ -660,6 +660,8 @@ typedef struct { void *ctrl, *dlg; } cb_cd;
 static void *tree_insert_callback(session_node *current, session_node *parent,
     int is_leaf, int level, void *extra_data)
 {
+    // we build up the complete name for backward compatibility if
+    // there's no treeview available (currently only GTK1)
     char *complete_name = NULL;
     if (is_leaf) {
         int len = 0, cap = 256;
@@ -685,8 +687,7 @@ static void *tree_insert_callback(session_node *current, session_node *parent,
     }
     current->user_data = dlg_treeview_add(((cb_cd*)extra_data)->ctrl,
         ((cb_cd*)extra_data)->dlg, current->name, is_leaf ? current->index : -1,
-        parent->user_data, is_leaf, (current->next_sibling == NULL ? 1 : 0),
-        complete_name);
+        parent->user_data, complete_name);
 
     if (complete_name) {
         sfree(complete_name);

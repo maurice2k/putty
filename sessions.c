@@ -65,6 +65,7 @@ session_tree *session_tree_create()
     session_tree *sess_tree = malloc(sizeof(session_tree));
     sess_tree->nodes = 0;
     sess_tree->root_node = session_node_create("ROOT NODE", -1);
+    sess_tree->node_user_data_free_callback = NULL;
     
     return sess_tree;
 }
@@ -74,7 +75,7 @@ void session_tree_free(session_tree *sess_tree)
 {
     assert(sess_tree != NULL);
     if (sess_tree->root_node != NULL) {
-        session_node_free(sess_tree->root_node);
+        session_node_free(sess_tree, sess_tree->root_node);
     }
     free(sess_tree);
 }
@@ -179,7 +180,7 @@ session_node *session_node_create(char *name, int index)
     sess_node->name = malloc(strlen(name) + 1);
     strcpy(sess_node->name, name);
     sess_node->index = index;
-    sess_node->data = NULL;
+    sess_node->user_data = NULL;
     sess_node->first_child = NULL;
     sess_node->next_sibling = NULL;
     sess_node->parent = NULL;
@@ -187,20 +188,26 @@ session_node *session_node_create(char *name, int index)
 }
 
 // free the given node and all child nodes/siblings
-void session_node_free(session_node *sess_node)
+void session_node_free(session_tree *sess_tree, session_node *sess_node)
 {
     if (sess_node == NULL) {
         return;
     }
     if (sess_node->first_child != NULL) {
-        session_node_free(sess_node->first_child);
+        session_node_free(sess_tree, sess_node->first_child);
         sess_node->first_child = NULL;
     }
 
     if (sess_node->next_sibling != NULL) {
-        session_node_free(sess_node->next_sibling);
+        session_node_free(sess_tree, sess_node->next_sibling);
         sess_node->next_sibling = NULL;
     }
+    
+    if (sess_node->user_data != NULL &&
+        sess_tree->node_user_data_free_callback) {
+            (*sess_tree->node_user_data_free_callback)(sess_node->user_data, sess_node);
+    }
+
     free(sess_node->name);
     free(sess_node);
     sess_node = NULL;
@@ -266,7 +273,7 @@ void session_tree_reload_from_sesslist(session_tree **sess_tree, struct sesslist
     if (*sess_tree == NULL) {
         *sess_tree = session_tree_create();
     } else {
-        session_node_free((*sess_tree)->root_node->first_child);
+        session_node_free(*sess_tree, (*sess_tree)->root_node->first_child);
         (*sess_tree)->root_node->first_child = NULL;
     }
 
@@ -275,6 +282,12 @@ void session_tree_reload_from_sesslist(session_tree **sess_tree, struct sesslist
     }
 }
 
+// sets callback function that is used to free user_data in session nodes
+void session_tree_set_node_user_data_free_callback(session_tree *sess_tree,
+    session_node_user_data_free_callback free_callback) 
+{
+    sess_tree->node_user_data_free_callback = free_callback;
+}
 
 static void *_session_node_find_cb(session_node *current, session_node *parent, int is_leaf, int level, void *extra_data)
 {
@@ -284,6 +297,7 @@ static void *_session_node_find_cb(session_node *current, session_node *parent, 
     return NULL;
 }
 
+// searches for leaf session nodes with given index
 session_node *session_tree_find_leaf_node_by_index(session_tree *sess_tree, int index)
 {
     return session_node_traverse(sess_tree->root_node, _session_node_find_cb, &index);

@@ -648,7 +648,7 @@ static int load_selected_session(struct sessionsaver_data *ssd,
      * changing the value of the edit box. */
     sess_node = session_tree_find_leaf_node_by_index(ssd->sess_tree, i);
     if (sess_node) {
-        dlg_treeview_select(ssd->listbox, dlg, sess_node->data);
+        dlg_treeview_select(ssd->listbox, dlg, sess_node->user_data);
     }
     return 1;
 }
@@ -683,9 +683,10 @@ static void *tree_insert_callback(session_node *current, session_node *parent,
             sess_node = sess_node->parent;
         }
     }
-    current->data = dlg_treeview_add(((cb_cd*)extra_data)->ctrl,
+    current->user_data = dlg_treeview_add(((cb_cd*)extra_data)->ctrl,
         ((cb_cd*)extra_data)->dlg, current->name, is_leaf ? current->index : -1,
-        parent->data, complete_name);
+        parent->user_data, is_leaf, (current->next_sibling == NULL ? 1 : 0),
+        complete_name);
 
     if (complete_name) {
         sfree(complete_name);
@@ -708,7 +709,7 @@ static void sessionsaver_handler(union control *ctrl, void *dlg,
             cb_cd cd = {ctrl, dlg};
 	    dlg_update_start(ctrl, dlg);
 	    dlg_treeview_clear(ctrl, dlg);
-            ssd->sess_tree->root_node->data = NULL;
+            ssd->sess_tree->root_node->user_data = NULL;
             session_node_traverse(ssd->sess_tree->root_node,
                 tree_insert_callback, &cd);
 	    dlg_update_done(ctrl, dlg);
@@ -735,7 +736,7 @@ static void sessionsaver_handler(union control *ctrl, void *dlg,
 	    }
             sess_node = session_tree_find_leaf_node_by_index(ssd->sess_tree, top);
             if (sess_node) {
-                dlg_treeview_select(ssd->listbox, dlg, sess_node->data);
+                dlg_treeview_select(ssd->listbox, dlg, sess_node->user_data);
             }
 	}
     } else if (event == EVENT_ACTION) {

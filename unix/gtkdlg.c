@@ -13,9 +13,9 @@
 #endif
 
 #define MAY_REFER_TO_GTK_IN_HEADERS
-
+/*
 #define GTK_MAJOR_VERSION				(2)
-#define GTK_MINOR_VERSION				(3)
+#define GTK_MINOR_VERSION				(2)
 #define GTK_MICRO_VERSION				(31)
 
 #define	GTK_CHECK_VERSION(major,minor,micro)	\
@@ -23,7 +23,7 @@
      (GTK_MAJOR_VERSION == (major) && GTK_MINOR_VERSION > (minor)) || \
      (GTK_MAJOR_VERSION == (major) && GTK_MINOR_VERSION == (minor) && \
       GTK_MICRO_VERSION >= (micro)))
-
+/**/
 
 #include "putty.h"
 #include "gtkcompat.h"
@@ -76,7 +76,8 @@ struct uctrl {
 #endif
 #if GTK_CHECK_VERSION(2,0,0)
     GtkWidget *treeview;      /* for listbox (GTK2), droplist+combo (>=2.4) */
-    GtkListStore *listmodel;  /* for all types of list box */
+    GtkTreeStore *listmodel;  /* for all types of list box */
+    GtkTreeStore *treemodel;  /* for treeview (GTK2) */
 #endif
     GtkWidget *text;	      /* for text */
     GtkWidget *label;         /* for dlg_label_change */
@@ -398,7 +399,7 @@ void dlg_listbox_clear(union control *ctrl, void *dlg)
 #endif
 #if GTK_CHECK_VERSION(2,0,0)
     if (uc->listmodel) {
-	gtk_list_store_clear(uc->listmodel);
+	gtk_tree_store_clear(uc->listmodel);
 	return;
     }
 #endif
@@ -432,7 +433,7 @@ void dlg_listbox_del(union control *ctrl, void *dlg, int index)
 	assert(uc->listmodel != NULL);
 	path = gtk_tree_path_new_from_indices(index, -1);
 	gtk_tree_model_get_iter(GTK_TREE_MODEL(uc->listmodel), &iter, path);
-	gtk_list_store_remove(uc->listmodel, &iter);
+	gtk_tree_store_remove(uc->listmodel, &iter);
 	gtk_tree_path_free(path);
 	return;
     }
@@ -573,9 +574,9 @@ void dlg_listbox_addwithid(union control *ctrl, void *dlg,
 	int i, cols;
 
 	dp->flags |= FLAG_UPDATING_LISTBOX;/* inhibit drag-list update */
-	gtk_list_store_append(uc->listmodel, &iter);
+	gtk_tree_store_append(uc->listmodel, &iter, NULL);
 	dp->flags &= ~FLAG_UPDATING_LISTBOX;
-	gtk_list_store_set(uc->listmodel, &iter, 0, id, -1);
+	gtk_tree_store_set(uc->listmodel, &iter, 0, id, -1);
 
 	/*
 	 * Now go through text and divide it into columns at the tabs,
@@ -588,7 +589,7 @@ void dlg_listbox_addwithid(union control *ctrl, void *dlg,
 	    char *tmpstr = snewn(collen+1, char);
 	    memcpy(tmpstr, text, collen);
 	    tmpstr[collen] = '\0';
-	    gtk_list_store_set(uc->listmodel, &iter, i+1, tmpstr, -1);
+	    gtk_tree_store_set(uc->listmodel, &iter, i+1, tmpstr, -1);
 	    sfree(tmpstr);
 	    text += collen;
 	    if (*text) text++;
@@ -859,7 +860,8 @@ void dlg_treeview_clear(union control *ctrl, void *dlg)
 }
 
 void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text,
-    int id, void *parent, char const *complete_name) 
+    int id, void *parent, int is_leaf, int is_last_sibling,
+    char const *complete_name)
 {
     struct dlgparam *dp = (struct dlgparam *)dlg;
     struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
@@ -875,36 +877,44 @@ void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text,
             GList *items;
             items = gtk_container_children(GTK_CONTAINER(uc->list));
             nitems = g_list_length(items);
+            printf("GINT_TO_POINTER(nitems - 1 + 0x1000): %p\n", GINT_TO_POINTER(nitems - 1 + 0x1000));
             return GINT_TO_POINTER(nitems - 1 + 0x1000);
         }
     }
 #else
     if (uc->listmodel) {
-        GtkTreeIter *iter;
-        GtkTreePath *path;
+        GtkTreeIter iter, parent_iter;
         int i, cols;
-        gint *indices;
-
-        iter = snew(GtkTreeIter);
-
-        dp->flags |= FLAG_UPDATING_LISTBOX;/* inhibit drag-list update */
-        gtk_tree_store_append(uc->listmodel, iter, parent);
-        dp->flags &= ~FLAG_UPDATING_LISTBOX;
-        gtk_tree_store_set(uc->listmodel, iter, 0, id, -1);
-        gtk_tree_store_set(uc->listmodel, iter, 1, text, -1);
-
 
         if (parent != NULL) {
-            sfree(parent);
+            gtk_tree_model_get_iter_first(GTK_TREE_MODEL(uc->listmodel), &parent_iter);
+            parent_iter.user_data = parent;
         }
 
-        if (complete_name != NULL) {
-            sfree(iter);
-            iter = NULL;
-        }
+	dp->flags |= FLAG_UPDATING_LISTBOX;/* inhibit drag-list update */
+	gtk_tree_store_append(uc->listmodel, &iter, parent == NULL ? NULL : &parent_iter);
+	dp->flags &= ~FLAG_UPDATING_LISTBOX;
+	gtk_tree_store_set(uc->listmodel, &iter, 0, id, -1);
 
-        return iter;
+	/*
+	 * Now go through text and divide it into columns at the tabs,
+	 * as necessary.
+	 */
+	cols = (uc->ctrl->generic.type == CTRL_LISTBOX ? ctrl->listbox.ncols : 1);
+	cols = cols ? cols : 1;
+	for (i = 0; i < cols; i++) {
+	    int collen = strcspn(text, "\t");
+	    char *tmpstr = snewn(collen+1, char);
+	    memcpy(tmpstr, text, collen);
+	    tmpstr[collen] = '\0';
+	    gtk_tree_store_set(uc->listmodel, &iter, i+1, tmpstr, -1);
+	    sfree(tmpstr);
+	    text += collen;
+	    if (*text) text++;
+	}
+        dp->flags &= ~FLAG_UPDATING_COMBO_LIST;
 
+        return iter.user_data;
     }
 
 #endif
@@ -929,39 +939,14 @@ void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id)
 #else
     if (uc->treeview) {
         GtkTreeSelection *treesel;
-        GtkTreePath *path;
-        GtkTreeModel *model;
-        GList *sellist;
-        gint *indices;
-        int ret;
+        GtkTreeIter iter;
 
-        assert(uc->treeview != NULL);
         treesel = gtk_tree_view_get_selection(GTK_TREE_VIEW(uc->treeview));
+        gtk_tree_selection_get_selected(treesel, NULL, &iter);
 
-        if (gtk_tree_selection_count_selected_rows(treesel) != 1) {
-            return NULL;
-        }
+	gtk_tree_model_get(GTK_TREE_MODEL(uc->listmodel), &iter, 0, id, -1);
 
-        sellist = gtk_tree_selection_get_selected_rows(treesel, &model);
-
-        assert(sellist && sellist->data);
-        path = sellist->data;
-
-        if (gtk_tree_path_get_depth(path) != 1) {
-            ret = -1;
-        } else {
-            indices = gtk_tree_path_get_indices(path);
-            if (!indices) {
-                ret = -1;
-            } else {
-                ret = indices[0];
-            }
-        }
-
-        g_list_foreach(sellist, (GFunc)gtk_tree_path_free, NULL);
-        g_list_free(sellist);
-
-        return ret;
+        return iter.user_data;
     }
 
 #endif
@@ -976,19 +961,26 @@ void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle)
     assert(uc->ctrl->generic.type == CTRL_LISTBOX);
 
 #if !GTK_CHECK_VERSION(2,0,0)
+printf("----------- item_handle: %p\n", item_handle);
     dlg_listbox_select(ctrl, dlg, (long)item_handle - 0x1000);
+printf("===========\n");
 #else
     if (uc->treeview) {
         GtkTreeSelection *treesel;
-        GtkTreePath *path = item_handle;
+        GtkTreeIter iter;
+        GtkTreePath *path;
+
+        gtk_tree_model_get_iter_first(GTK_TREE_MODEL(uc->listmodel), &iter);
+        iter.user_data = item_handle;
 
         treesel = gtk_tree_view_get_selection(GTK_TREE_VIEW(uc->treeview));
 
-        gtk_tree_selection_select_path(treesel, path);
+        gtk_tree_selection_select_iter(treesel, &iter);
+        path = gtk_tree_model_get_path(GTK_TREE_MODEL(uc->listmodel), &iter);
+        gtk_tree_view_expand_to_path(GTK_TREE_VIEW(uc->treeview), path);
         gtk_tree_view_scroll_to_cell(GTK_TREE_VIEW(uc->treeview),
                                      path, NULL, FALSE, 0.0, 0.0);
-        //gtk_tree_path_free(path);
-        return;
+        gtk_tree_path_free(path);
     }
 #endif
 }
@@ -2234,7 +2226,7 @@ if (ctrl->generic.type == CTRL_TREEVIEW) {
 		    /*
 		     * GTK 2 combo box.
 		     */
-		    uc->listmodel = gtk_list_store_new(2, G_TYPE_INT,
+		    uc->listmodel = gtk_tree_store_new(2, G_TYPE_INT,
 						       G_TYPE_STRING);
 		    w = gtk_combo_box_new_with_model_and_entry
 			(GTK_TREE_MODEL(uc->listmodel));
@@ -2399,8 +2391,7 @@ if (ctrl->generic.type == CTRL_TREEVIEW) {
 		types[0] = G_TYPE_INT;
 		for (i = 0; i < cols; i++)
 		    types[i+1] = G_TYPE_STRING;
-
-		uc->listmodel = gtk_list_store_newv(1 + cols, types);
+		uc->listmodel = gtk_tree_store_newv(1 + cols, types);
 
 		sfree(types);
 	    }

@@ -1,5 +1,5 @@
 # -*- makefile -*-
-# 
+#
 # This file describes which PuTTY programs are made up from which
 # object and resource files. It is processed into the various
 # Makefiles by means of a Perl script. Makefile changes should
@@ -236,7 +236,7 @@ TERMINAL = terminal wcwidth ldiscucs logging tree234 minibidi
 
 # GUI front end and terminal emulator (putty, puttytel).
 GUITERM  = TERMINAL window windlg winctrls sizetip winprint winutils
-	 + wincfg sercfg winhelp winjump
+	 + wincfg sercfg winhelp winjump parson sync
 
 # Same thing on Unix.
 UXTERM   = TERMINAL uxcfg sercfg uxucs uxprint timing callback miscucs
@@ -261,6 +261,7 @@ SFTP     = sftp int64 logging
 # Miscellaneous objects appearing in all the network utilities (not
 # Pageant or PuTTYgen).
 MISC     = timing callback misc version settings tree234 proxy conf be_misc
+         + sessions
 WINMISC  = MISC winstore winnet winhandl cmdline windefs winmisc winproxy
          + wintime winhsock errsock winsecur winucs miscucs
 UXMISC   = MISC uxstore uxsel uxnet uxpeer cmdline uxmisc uxproxy time
@@ -274,7 +275,7 @@ CHARSET  = sbcsdat slookup sbcs utf8 toucs fromucs xenc mimeenc macenc localenc
 
 # Standard libraries.
 LIBS     = advapi32.lib user32.lib gdi32.lib comdlg32.lib
-         + shell32.lib imm32.lib ole32.lib
+         + shell32.lib imm32.lib ole32.lib wininet.lib
 
 # Network backend sets. This also brings in the relevant attachment
 # to proxy.c depending on whether we're crypto-avoidant or not.

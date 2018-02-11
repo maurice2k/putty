@@ -13,6 +13,7 @@
 #define IDD_ABOUTBOX     111
 #define IDD_RECONF       112
 #define IDD_LICENCEBOX   113
+#define IDD_SYNC_SETTINGS 114
 
 #define IDN_LIST        1001
 #define IDN_COPY        1002
@@ -28,5 +29,11 @@
 #define IDC_TABLIST     1004
 #define IDC_HELPBTN     1005
 #define IDC_ABOUT       1006
+
+#define IDC_STATIC         -1
+#define IDC_SYNC_URL       1001
+#define IDC_SYNC_USERNAME  1002
+#define IDC_SYNC_PASSWORD  1003
+#define IDC_SYNC_INFO      1004
 
 #endif

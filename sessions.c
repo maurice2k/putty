@@ -66,7 +66,7 @@ session_tree *session_tree_create()
     sess_tree->nodes = 0;
     sess_tree->root_node = session_node_create("ROOT NODE", -1);
     sess_tree->node_user_data_free_callback = NULL;
-    
+
     return sess_tree;
 }
 
@@ -202,7 +202,7 @@ void session_node_free(session_tree *sess_tree, session_node *sess_node)
         session_node_free(sess_tree, sess_node->next_sibling);
         sess_node->next_sibling = NULL;
     }
-    
+
     if (sess_node->user_data != NULL &&
         sess_tree->node_user_data_free_callback) {
             (*sess_tree->node_user_data_free_callback)(sess_node->user_data, sess_node);
@@ -284,7 +284,7 @@ void session_tree_reload_from_sesslist(session_tree **sess_tree, struct sesslist
 
 // sets callback function that is used to free user_data in session nodes
 void session_tree_set_node_user_data_free_callback(session_tree *sess_tree,
-    session_node_user_data_free_callback free_callback) 
+    session_node_user_data_free_callback free_callback)
 {
     sess_tree->node_user_data_free_callback = free_callback;
 }

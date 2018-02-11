@@ -351,6 +351,23 @@ union control *ctrl_pushbutton(struct controlset *s, const char *label,
     return c;
 }
 
+union control *ctrl_treeview(struct controlset *s, const char *label,
+                            char shortcut, intorptr helpctx,
+                            handler_fn handler, intorptr context)
+{
+    union control *c = ctrl_new(s, CTRL_TREEVIEW, helpctx, handler, context);
+    c->listbox.label = label ? dupstr(label) : NULL;
+    c->listbox.shortcut = shortcut;
+    c->listbox.height = 5;	       /* *shrug* a plausible default */
+    c->listbox.draglist = 0;
+    c->listbox.multisel = 0;
+    c->listbox.percentwidth = 100;
+    c->listbox.ncols = 0;
+    c->listbox.percentages = NULL;
+    c->listbox.hscroll = TRUE;
+    return c;
+}
+
 union control *ctrl_listbox(struct controlset *s, const char *label,
                             char shortcut, intorptr helpctx,
                             handler_fn handler, intorptr context)

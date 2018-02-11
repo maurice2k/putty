@@ -9,6 +9,7 @@
 #include "putty.h"
 #include "dialog.h"
 #include "storage.h"
+#include "sessions.h"
 
 #define PRINTER_DISABLED_STRING "None (printing disabled)"
 
@@ -606,6 +607,7 @@ struct sessionsaver_data {
     union control *editbox, *listbox, *loadbutton, *savebutton, *delbutton;
     union control *okbutton, *cancelbutton;
     struct sesslist sesslist;
+    session_tree *sess_tree;
     int midsession;
     char *savedsession;     /* the current contents of ssd->editbox */
 };
@@ -614,6 +616,7 @@ static void sessionsaver_data_free(void *ssdv)
 {
     struct sessionsaver_data *ssd = (struct sessionsaver_data *)ssdv;
     get_sesslist(&ssd->sesslist, FALSE);
+    session_tree_free(ssd->sess_tree);
     sfree(ssd->savedsession);
     sfree(ssd);
 }
@@ -626,9 +629,11 @@ static void sessionsaver_data_free(void *ssdv)
 static int load_selected_session(struct sessionsaver_data *ssd,
 				 void *dlg, Conf *conf, int *maybe_launch)
 {
-    int i = dlg_listbox_index(ssd->listbox, dlg);
+    int i = -1;
+    session_node *sess_node;
+    void *item_handle = dlg_treeview_selected(ssd->listbox, dlg, &i);
     int isdef;
-    if (i < 0) {
+    if (i < 0 || item_handle == NULL) {
 	dlg_beep(dlg);
 	return 0;
     }
@@ -641,8 +646,54 @@ static int load_selected_session(struct sessionsaver_data *ssd,
     dlg_refresh(NULL, dlg);
     /* Restore the selection, which might have been clobbered by
      * changing the value of the edit box. */
-    dlg_listbox_select(ssd->listbox, dlg, i);
+    sess_node = session_tree_find_leaf_node_by_index(ssd->sess_tree, i);
+    if (sess_node) {
+        dlg_treeview_select(ssd->listbox, dlg, sess_node->user_data);
+    }
     return 1;
+}
+
+typedef struct { void *ctrl, *dlg; } cb_cd;
+/*
+ * Get's called from session_node_traverse for each tree list item
+ */
+static void *tree_insert_callback(session_node *current, session_node *parent,
+    int is_leaf, int level, void *extra_data)
+{
+    // we build up the complete name for backward compatibility if
+    // there's no treeview available (currently only GTK1)
+    char *complete_name = NULL;
+    if (is_leaf) {
+        int len = 0, cap = 256;
+        session_node *sess_node = current;
+
+        complete_name = snewn(cap, char);
+        while (sess_node->parent != NULL) {
+            int name_len = strlen(sess_node->name);
+            if (len + name_len + 2 > cap - 1) {
+                cap = (len + name_len + 2) + 256;
+                complete_name = sresize(complete_name, cap, char);
+            }
+            if (len > 0) {
+                memmove(complete_name + name_len + 2, complete_name, len);
+                strncpy(complete_name + name_len, ": ", 2);
+                len += 2;
+            }
+            strncpy(complete_name, sess_node->name, name_len);
+            len += name_len;
+            complete_name[len] = 0;
+            sess_node = sess_node->parent;
+        }
+    }
+    current->user_data = dlg_treeview_add(((cb_cd*)extra_data)->ctrl,
+        ((cb_cd*)extra_data)->dlg, current->name, is_leaf ? current->index : -1,
+        parent->user_data, complete_name);
+
+    if (complete_name) {
+        sfree(complete_name);
+    }
+
+    return NULL;
 }
 
 static void sessionsaver_handler(union control *ctrl, void *dlg,
@@ -656,15 +707,17 @@ static void sessionsaver_handler(union control *ctrl, void *dlg,
 	if (ctrl == ssd->editbox) {
 	    dlg_editbox_set(ctrl, dlg, ssd->savedsession);
 	} else if (ctrl == ssd->listbox) {
-	    int i;
+            cb_cd cd = {ctrl, dlg};
 	    dlg_update_start(ctrl, dlg);
-	    dlg_listbox_clear(ctrl, dlg);
-	    for (i = 0; i < ssd->sesslist.nsessions; i++)
-		dlg_listbox_add(ctrl, dlg, ssd->sesslist.sessions[i]);
+	    dlg_treeview_clear(ctrl, dlg);
+            ssd->sess_tree->root_node->user_data = NULL;
+            session_node_traverse(ssd->sess_tree->root_node,
+                tree_insert_callback, &cd);
 	    dlg_update_done(ctrl, dlg);
 	}
     } else if (event == EVENT_VALCHANGE) {
         int top, bottom, halfway, i;
+        session_node *sess_node;
 	if (ctrl == ssd->editbox) {
             sfree(ssd->savedsession);
             ssd->savedsession = dlg_editbox_get(ctrl, dlg);
@@ -682,7 +735,10 @@ static void sessionsaver_handler(union control *ctrl, void *dlg,
 	    if (top == ssd->sesslist.nsessions) {
 	        top -= 1;
 	    }
-	    dlg_listbox_select(ssd->listbox, dlg, top);
+            sess_node = session_tree_find_leaf_node_by_index(ssd->sess_tree, top);
+            if (sess_node) {
+                dlg_treeview_select(ssd->listbox, dlg, sess_node->user_data);
+            }
 	}
     } else if (event == EVENT_ACTION) {
 	int mbl = FALSE;
@@ -703,8 +759,9 @@ static void sessionsaver_handler(union control *ctrl, void *dlg,
 	} else if (ctrl == ssd->savebutton) {
 	    int isdef = !strcmp(ssd->savedsession, "Default Settings");
 	    if (!ssd->savedsession[0]) {
-		int i = dlg_listbox_index(ssd->listbox, dlg);
-		if (i < 0) {
+                int i = -1;
+                void *item_handle = dlg_treeview_selected(ssd->listbox, dlg, &i);
+                if (i < 0 || item_handle == NULL) {
 		    dlg_beep(dlg);
 		    return;
 		}
@@ -722,17 +779,21 @@ static void sessionsaver_handler(union control *ctrl, void *dlg,
             }
 	    get_sesslist(&ssd->sesslist, FALSE);
 	    get_sesslist(&ssd->sesslist, TRUE);
+            session_tree_reload_from_sesslist(&ssd->sess_tree, &ssd->sesslist);
 	    dlg_refresh(ssd->editbox, dlg);
 	    dlg_refresh(ssd->listbox, dlg);
 	} else if (!ssd->midsession &&
 		   ssd->delbutton && ctrl == ssd->delbutton) {
-	    int i = dlg_listbox_index(ssd->listbox, dlg);
-	    if (i <= 0) {
+            int i = -1;
+            void *item_handle = dlg_treeview_selected(ssd->listbox, dlg, &i);
+            if (i < 0 || item_handle == NULL) {
 		dlg_beep(dlg);
+                return;
 	    } else {
 		del_settings(ssd->sesslist.sessions[i]);
 		get_sesslist(&ssd->sesslist, FALSE);
 		get_sesslist(&ssd->sesslist, TRUE);
+                session_tree_reload_from_sesslist(&ssd->sess_tree, &ssd->sesslist);
 		dlg_refresh(ssd->listbox, dlg);
 	    }
 	} else if (ctrl == ssd->okbutton) {
@@ -1432,6 +1493,7 @@ void setup_config_box(struct controlbox *b, int midsession,
 		    "Load, save or delete a stored session");
     ctrl_columns(s, 2, 75, 25);
     get_sesslist(&ssd->sesslist, TRUE);
+    session_tree_reload_from_sesslist(&ssd->sess_tree, &ssd->sesslist);
     ssd->editbox = ctrl_editbox(s, "Saved Sessions", 'e', 100,
 				HELPCTX(session_saved),
 				sessionsaver_handler, P(ssd), P(NULL));
@@ -1440,11 +1502,11 @@ void setup_config_box(struct controlbox *b, int midsession,
      * than alongside that edit box. */
     ctrl_columns(s, 1, 100);
     ctrl_columns(s, 2, 75, 25);
-    ssd->listbox = ctrl_listbox(s, NULL, NO_SHORTCUT,
+    ssd->listbox = ctrl_treeview(s, NULL, NO_SHORTCUT,
 				HELPCTX(session_saved),
 				sessionsaver_handler, P(ssd));
     ssd->listbox->generic.column = 0;
-    ssd->listbox->listbox.height = 7;
+    ssd->listbox->listbox.height = 20;
     if (!midsession) {
 	ssd->loadbutton = ctrl_pushbutton(s, "Load", 'l',
 					  HELPCTX(session_saved),

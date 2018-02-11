@@ -795,6 +795,35 @@ void listbox(struct ctlpos *cp, char *stext,
 }
 
 /*
+ * A list box with a static labelling it.
+ */
+void treeview(struct ctlpos *cp, char *stext,
+	     int sid, int lid, int lines, int multi)
+{
+    RECT r;
+    if (stext != NULL) {
+	r.left = GAPBETWEEN;
+	r.top = cp->ypos;
+	r.right = cp->width;
+	r.bottom = STATICHEIGHT;
+	cp->ypos += r.bottom + GAPWITHIN;
+	doctl(cp, r, "STATIC", WS_CHILD | WS_VISIBLE, 0, stext, sid);
+    }
+
+    r.left = GAPBETWEEN;
+    r.top = cp->ypos;
+    r.right = cp->width;
+    r.bottom = LISTHEIGHT + (lines - 1) * LISTINCREMENT;
+    cp->ypos += r.bottom + GAPBETWEEN;
+    doctl(cp, r, WC_TREEVIEW,
+	WS_CHILD | WS_VISIBLE | WS_TABSTOP | 
+        TVS_DISABLEDRAGDROP | TVS_HASBUTTONS |
+        TVS_HASLINES | TVS_LINESATROOT |
+        TVS_SHOWSELALWAYS,
+	  WS_EX_CLIENTEDGE, "", lid);
+}
+
+/*
  * A tab-control substitute when a real tab control is unavailable.
  */
 void ersatztab(struct ctlpos *cp, char *stext, int sid, int lid, int s2id)
@@ -1637,6 +1666,16 @@ void winctrl_layout(struct dlgparam *dp, struct winctrls *wc,
 	    }
 	    sfree(escaped);
 	    break;
+	  case CTRL_TREEVIEW:
+	    num_ids = 2;
+	    escaped = shortcut_escape(ctrl->listbox.label,
+				      ctrl->listbox.shortcut);
+	    shortcuts[nshortcuts++] = ctrl->listbox.shortcut;
+	    treeview(&pos, escaped, base_id, base_id+1,
+		ctrl->listbox.height, ctrl->listbox.multisel);
+	    sfree(escaped);
+	    break;
+
 	  case CTRL_FILESELECT:
 	    num_ids = 3;
 	    escaped = shortcut_escape(ctrl->fileselect.label,
@@ -1739,15 +1778,17 @@ int winctrl_handle_command(struct dlgparam *dp, UINT msg,
     union control *ctrl;
     int i, id, ret;
     static UINT draglistmsg = WM_NULL;
+    LPNMHDR nmh = NULL;
 
     /*
      * Filter out pointless window messages. Our interest is in
-     * WM_COMMAND and the drag list message, and nothing else.
+     * WM_COMMAND, WM_NOTIFY and the drag list message, and nothing else.
      */
     if (draglistmsg == WM_NULL)
 	draglistmsg = RegisterWindowMessage (DRAGLISTMSGSTRING);
 
-    if (msg != draglistmsg && msg != WM_COMMAND && msg != WM_DRAWITEM)
+    if (msg != draglistmsg && msg != WM_COMMAND && msg != WM_DRAWITEM
+        && msg != WM_NOTIFY)
 	return 0;
 
     /*
@@ -1782,6 +1823,8 @@ int winctrl_handle_command(struct dlgparam *dp, UINT msg,
 		(char *)c->data, strlen((char *)c->data));
 
 	return TRUE;
+    } else if (msg == WM_NOTIFY) {
+        nmh = (LPNMHDR)lParam;
     }
 
     ctrl = c->ctrl;
@@ -1902,6 +1945,20 @@ int winctrl_handle_command(struct dlgparam *dp, UINT msg,
 		ctrl->generic.handler(ctrl, dp, dp->data, EVENT_SELCHANGE);
 	    }
 	}
+	break;
+      case CTRL_TREEVIEW:
+        if (msg == WM_NOTIFY && ctrl->listbox.height != 0 &&
+            (nmh->code == NM_SETFOCUS || nmh->code == NM_KILLFOCUS))
+            winctrl_set_focus(ctrl, dp, nmh->code == NM_SETFOCUS);
+        if (msg == WM_COMMAND && id >= 2 &&
+            (HIWORD(wParam) == BN_SETFOCUS || HIWORD(wParam) == BN_KILLFOCUS))
+            winctrl_set_focus(ctrl, dp, HIWORD(wParam) == BN_SETFOCUS);
+        if (msg == WM_NOTIFY && nmh->code == NM_DBLCLK) {
+            SetCapture(dp->hwnd);
+            ctrl->generic.handler(ctrl, dp, dp->data, EVENT_ACTION);
+        } else if (msg == WM_NOTIFY && nmh->code == TVN_SELCHANGED) {
+            ctrl->generic.handler(ctrl, dp, dp->data, EVENT_SELCHANGE);
+        }
 	break;
       case CTRL_FILESELECT:
 	if (msg == WM_COMMAND && id == 1 &&
@@ -2245,6 +2302,76 @@ void dlg_listbox_select(union control *ctrl, void *dlg, int index)
     SendDlgItemMessage(dp->hwnd, c->base_id+1, msg, index, 0);
 }
 
+void dlg_treeview_clear(union control *ctrl, void *dlg)
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+
+    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
+
+    SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_DELETEITEM, 0,
+        (LPARAM)TVI_ROOT);
+}
+
+void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id)
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+    TVITEM tvi;
+
+    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
+
+    tvi.hItem = (void *)SendDlgItemMessage(dp->hwnd, c->base_id+1,
+        TVM_GETNEXTITEM, TVGN_CARET, 0);
+    if (tvi.hItem == NULL) {
+        return NULL;
+    }
+
+    if (!SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_GETITEM, 0,
+        (LPARAM)&tvi)) {
+        return NULL;
+    }
+
+    *id = (int)tvi.lParam;
+
+    return tvi.hItem;
+}
+
+void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle)
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+
+    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
+
+    SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_SELECTITEM, TVGN_CARET,
+        (LPARAM)item_handle);
+}
+
+void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text, int id,
+     void *parent, char const *complete_name)
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+    TVITEM tvi;
+    TVINSERTSTRUCT tvins;
+
+    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
+
+    tvi.mask = TVIF_TEXT | TVIF_PARAM;
+
+    tvi.pszText = (char *)text;
+    tvi.cchTextMax = sizeof(tvi.pszText)/sizeof(tvi.pszText[0]);
+
+    tvi.lParam = (LPARAM)id;
+    tvins.item = tvi;
+    tvins.hInsertAfter = (HTREEITEM)TVI_LAST;
+    tvins.hParent = parent == NULL ? TVI_ROOT : parent;
+
+    return (void *)SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_INSERTITEM, 0,
+        (LPARAM)(LPTVINSERTSTRUCT)&tvins);
+}
+
 void dlg_text_set(union control *ctrl, void *dlg, char const *text)
 {
     struct dlgparam *dp = (struct dlgparam *)dlg;
@@ -2279,6 +2406,7 @@ void dlg_label_change(union control *ctrl, void *dlg, char const *text)
 	id = c->base_id;
 	break;
       case CTRL_LISTBOX:
+      case CTRL_TREEVIEW:
 	escaped = shortcut_escape(text, ctrl->listbox.shortcut);
 	id = c->base_id;
 	break;

@@ -24,6 +24,7 @@
 #include "storage.h"
 #include "win_res.h"
 #include "winsecur.h"
+#include "sessions.h"
 
 #ifndef NO_MULTIMON
 #include <multimon.h>
@@ -361,6 +362,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
     init_common_controls();
 
+#ifdef DEBUG
+    AllocConsole();
+    freopen("CONOUT$", "w", stdout);
+#endif
     /* Set Explicit App User Model Id so that jump lists don't cause
        PuTTY to hang on to removable media. */
 
@@ -1006,22 +1011,44 @@ char *do_select(SOCKET skt, int startup)
 }
 
 /*
+ * Get's called from session_node_traverse for each menu item
+ */
+static void *menu_insert_callback(session_node *current, session_node *parent,
+    int is_leaf, int level, void *extra_data)
+{
+    if (is_leaf == 0) {
+        current->user_data = CreatePopupMenu();
+        AppendMenu(parent->user_data, MF_POPUP,
+            (UINT_PTR)current->user_data,
+            current->name);
+        return NULL;
+    }
+
+    AppendMenu(parent->user_data, MF_ENABLED,
+        IDM_SAVED_MIN + (current->index-1)*MENU_SAVED_STEP,
+        current->name);
+
+    return NULL;
+}
+/*
  * Refresh the saved-session submenu from `sesslist'.
  */
 static void update_savedsess_menu(void)
 {
     int i;
+    session_tree *sess_tree = session_tree_create();
+    sess_tree->root_node->user_data = savedsess_menu;
     while (DeleteMenu(savedsess_menu, 0, MF_BYPOSITION)) ;
     /* skip sesslist.sessions[0] == Default Settings */
     for (i = 1;
 	 i < ((sesslist.nsessions <= MENU_SAVED_MAX+1) ? sesslist.nsessions
 						       : MENU_SAVED_MAX+1);
 	 i++)
-	AppendMenu(savedsess_menu, MF_ENABLED,
-		   IDM_SAVED_MIN + (i-1)*MENU_SAVED_STEP,
-		   sesslist.sessions[i]);
+        session_tree_add_flat_name(sess_tree, sesslist.sessions[i], i);
+    session_node_traverse(sess_tree->root_node, menu_insert_callback, NULL);
     if (sesslist.nsessions <= 1)
 	AppendMenu(savedsess_menu, MF_GRAYED, IDM_SAVED_MIN, "(No sessions)");
+    session_tree_free(sess_tree);
 }
 
 /*

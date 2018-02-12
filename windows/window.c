@@ -1018,14 +1018,14 @@ char *do_select(SOCKET skt, int startup)
 static void *menu_insert_callback(session_node *current, session_node *parent, int is_leaf, int level, void *extra_data)
 {
     if (is_leaf == 0) {
-        current->data = CreatePopupMenu();
-        AppendMenu(parent->data, MF_POPUP,
-            (UINT_PTR)current->data,
+        current->user_data = CreatePopupMenu();
+        AppendMenu(parent->user_data, MF_POPUP,
+            (UINT_PTR)current->user_data,
             current->name);
         return NULL;
     }
 
-    AppendMenu(parent->data, MF_ENABLED,
+    AppendMenu(parent->user_data, MF_ENABLED,
         IDM_SAVED_MIN + (current->index-1)*MENU_SAVED_STEP,
         current->name);
 
@@ -1038,7 +1038,7 @@ static void update_savedsess_menu(void)
 {
     int i;
     session_tree *sess_tree = session_tree_create();
-    sess_tree->root_node->data = savedsess_menu;
+    sess_tree->root_node->user_data = savedsess_menu;
     while (DeleteMenu(savedsess_menu, 0, MF_BYPOSITION)) ;
     /* skip sesslist.sessions[0] == Default Settings */
     for (i = 1;

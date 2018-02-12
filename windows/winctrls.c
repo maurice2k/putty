@@ -2223,70 +2223,6 @@ void dlg_listbox_add(union control *ctrl, void *dlg, char const *text)
     SendDlgItemMessage(dp->hwnd, c->base_id+1, msg, 0, (LPARAM)text);
 }
 
-void dlg_treeview_clear(union control *ctrl, void *dlg)
-{
-    struct dlgparam *dp = (struct dlgparam *)dlg;
-    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
-
-    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
-
-    SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_DELETEITEM, 0, (LPARAM)TVI_ROOT);
-}
-
-void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id)
-{
-    struct dlgparam *dp = (struct dlgparam *)dlg;
-    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
-    TVITEM tvi;
-
-    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
-
-    tvi.hItem = (void *)SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_GETNEXTITEM, TVGN_CARET, 0);
-    if (tvi.hItem == NULL) {
-        return NULL;
-    }
-
-    if (!SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_GETITEM, 0, (LPARAM)&tvi)) {
-        return NULL;
-    }
-
-    *id = (int)tvi.lParam;
-
-    return tvi.hItem;
-}
-
-void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle)
-{
-    struct dlgparam *dp = (struct dlgparam *)dlg;
-    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
-
-    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
-
-    SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_SELECTITEM, TVGN_CARET, (LPARAM)item_handle);
-}
-
-void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text, int id, void *parent)
-{
-    struct dlgparam *dp = (struct dlgparam *)dlg;
-    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
-    TVITEM tvi;
-    TVINSERTSTRUCT tvins;
-
-    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
-
-    tvi.mask = TVIF_TEXT | TVIF_PARAM;
-
-    tvi.pszText = (char *)text;
-    tvi.cchTextMax = sizeof(tvi.pszText)/sizeof(tvi.pszText[0]);
-
-    tvi.lParam = (LPARAM)id;
-    tvins.item = tvi;
-    tvins.hInsertAfter = (HTREEITEM)TVI_LAST;
-    tvins.hParent = parent == NULL ? TVI_ROOT : parent;
-
-    return (void *)SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_INSERTITEM, 0, (LPARAM)(LPTVINSERTSTRUCT)&tvins);
-}
-
 /*
  * Each listbox entry may have a numeric id associated with it.
  * Note that some front ends only permit a string to be stored at
@@ -2364,6 +2300,70 @@ void dlg_listbox_select(union control *ctrl, void *dlg, int index)
 	   !c->ctrl->listbox.multisel);
     msg = (c->ctrl->listbox.height != 0 ? LB_SETCURSEL : CB_SETCURSEL);
     SendDlgItemMessage(dp->hwnd, c->base_id+1, msg, index, 0);
+}
+
+void dlg_treeview_clear(union control *ctrl, void *dlg)
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+
+    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
+
+    SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_DELETEITEM, 0, (LPARAM)TVI_ROOT);
+}
+
+void *dlg_treeview_selected(union control *ctrl, void *dlg, int *id)
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+    TVITEM tvi;
+
+    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
+
+    tvi.hItem = (void *)SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_GETNEXTITEM, TVGN_CARET, 0);
+    if (tvi.hItem == NULL) {
+        return NULL;
+    }
+
+    if (!SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_GETITEM, 0, (LPARAM)&tvi)) {
+        return NULL;
+    }
+
+    *id = (int)tvi.lParam;
+
+    return tvi.hItem;
+}
+
+void dlg_treeview_select(union control *ctrl, void *dlg, void *item_handle)
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+
+    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
+
+    SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_SELECTITEM, TVGN_CARET, (LPARAM)item_handle);
+}
+
+void *dlg_treeview_add(union control *ctrl, void *dlg, char const *text, int id, void *parent, char const *complete_name)
+{
+    struct dlgparam *dp = (struct dlgparam *)dlg;
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+    TVITEM tvi;
+    TVINSERTSTRUCT tvins;
+
+    assert(c && c->ctrl->generic.type == CTRL_TREEVIEW);
+
+    tvi.mask = TVIF_TEXT | TVIF_PARAM;
+
+    tvi.pszText = (char *)text;
+    tvi.cchTextMax = sizeof(tvi.pszText)/sizeof(tvi.pszText[0]);
+
+    tvi.lParam = (LPARAM)id;
+    tvins.item = tvi;
+    tvins.hInsertAfter = (HTREEITEM)TVI_LAST;
+    tvins.hParent = parent == NULL ? TVI_ROOT : parent;
+
+    return (void *)SendDlgItemMessage(dp->hwnd, c->base_id+1, TVM_INSERTITEM, 0, (LPARAM)(LPTVINSERTSTRUCT)&tvins);
 }
 
 void dlg_text_set(union control *ctrl, void *dlg, char const *text)
